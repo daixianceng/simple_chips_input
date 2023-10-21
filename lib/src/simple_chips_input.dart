@@ -9,35 +9,31 @@ class SimpleChipsInput extends StatefulWidget {
   const SimpleChipsInput({
     super.key,
     required this.separatorCharacter,
+    this.initialValue,
     this.placeChipsSectionAbove = true,
     this.widgetContainerDecoration = const BoxDecoration(),
     this.marginBetweenChips =
         const EdgeInsets.symmetric(horizontal: 2.0, vertical: 1.0),
-    this.paddingInsideChipContainer =
-        const EdgeInsets.symmetric(vertical: 8.0, horizontal: 14.0),
     this.paddingInsideWidgetContainer = const EdgeInsets.all(8.0),
-    this.chipContainerDecoration = const BoxDecoration(
-      shape: BoxShape.rectangle,
-      color: Colors.blue,
-      borderRadius: BorderRadius.all(Radius.circular(50.0)),
-    ),
     this.textFormFieldStyle = const TextFormFieldStyle(),
-    this.chipTextStyle = const TextStyle(color: Colors.white),
+    this.chipTextStyle,
     this.focusNode,
     this.autoFocus = false,
     this.controller,
     this.createCharacter = ' ',
     this.deleteIcon,
-    this.validateInput = false,
-    this.validateInputMethod,
+    this.inputValidator,
     this.eraseKeyLabel = 'Backspace',
     this.formKey,
     this.onChanged,
+    this.onValueChanged,
     this.onEditingComplete,
     this.onSubmitted,
     this.onSaved,
     this.onChipDeleted,
   });
+
+  final String? initialValue;
 
   /// Character to seperate the output. For example: ' ' will seperate the output by space.
   final String separatorCharacter;
@@ -51,14 +47,8 @@ class SimpleChipsInput extends StatefulWidget {
   /// Margin between the chips.
   final EdgeInsets marginBetweenChips;
 
-  /// Padding inside the chip container.
-  final EdgeInsets paddingInsideChipContainer;
-
   /// Padding inside the main widget container;
   final EdgeInsets paddingInsideWidgetContainer;
-
-  /// Decoration for the chip container.
-  final BoxDecoration chipContainerDecoration;
 
   /// FocusNode for the text field.
   final FocusNode? focusNode;
@@ -70,16 +60,13 @@ class SimpleChipsInput extends StatefulWidget {
   final String createCharacter;
 
   /// Text style for the chip.
-  final TextStyle chipTextStyle;
+  final TextStyle? chipTextStyle;
 
   /// Icon for the delete method.
   final Widget? deleteIcon;
 
-  /// Whether to validate input before adding to a chip.
-  final bool validateInput;
-
   /// Validation method.
-  final dynamic Function(String)? validateInputMethod;
+  final String? Function(String?)? inputValidator;
 
   /// The key label used for erasing a chip. Defaults to Backspace.
   final String eraseKeyLabel;
@@ -93,6 +80,7 @@ class SimpleChipsInput extends StatefulWidget {
   /// Style for the textfield.
   final TextFormFieldStyle textFormFieldStyle;
 
+  final void Function(String, List<String>)? onValueChanged;
   final void Function(String)? onChanged;
   final void Function()? onEditingComplete;
   final void Function(String)? onSubmitted;
@@ -109,10 +97,10 @@ class _SimpleChipsInputState extends State<SimpleChipsInput> {
   late final TextEditingController _controller;
   // ignore: prefer_typing_uninitialized_variables
   late final _formKey;
-  final List<String> _chipsText = [];
+  late final List<String> _chipsText;
   late final FocusNode _focusNode;
 
-  String _output = '';
+  String get output => _chipsText.join(widget.separatorCharacter);
 
   @override
   void initState() {
@@ -120,37 +108,33 @@ class _SimpleChipsInputState extends State<SimpleChipsInput> {
     _controller = widget.controller ?? TextEditingController();
     _formKey = widget.formKey ?? GlobalKey<FormState>();
     _focusNode = widget.focusNode ?? FocusNode();
+    _chipsText = widget.initialValue != null && widget.initialValue != ''
+        ? widget.initialValue!.split(widget.separatorCharacter)
+        : [];
   }
 
   List<Widget> _buildChipsSection() {
     final List<Widget> chips = [];
     for (int i = 0; i < _chipsText.length; i++) {
-      chips.add(Container(
-        padding: widget.paddingInsideChipContainer,
-        margin: widget.marginBetweenChips,
-        decoration: widget.chipContainerDecoration,
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Flexible(
-              child: Text(
-                _chipsText[i],
-                style: widget.chipTextStyle,
-              ),
+      chips.add(
+        Container(
+          margin: widget.marginBetweenChips,
+          child: InputChip(
+            label: Text(
+              _chipsText[i],
+              style: widget.chipTextStyle,
             ),
-            if (widget.deleteIcon != null)
-              GestureDetector(
-                onTap: () {
-                  widget.onChipDeleted?.call(_chipsText[i], i);
-                  setState(() {
-                    _chipsText.removeAt(i);
-                  });
-                },
-                child: widget.deleteIcon,
-              ),
-          ],
+            deleteIcon: widget.deleteIcon,
+            onDeleted: () {
+              widget.onChipDeleted?.call(_chipsText[i], i);
+              setState(() {
+                _chipsText.removeAt(i);
+              });
+              widget.onValueChanged?.call(output, _chipsText);
+            },
+          ),
         ),
-      ));
+      );
     }
     return chips;
   }
@@ -176,6 +160,7 @@ class _SimpleChipsInputState extends State<SimpleChipsInput> {
                       setState(() {
                         _chipsText.removeLast();
                       });
+                      widget.onValueChanged?.call(output, _chipsText);
                     }
                   }
                 },
@@ -205,54 +190,39 @@ class _SimpleChipsInputState extends State<SimpleChipsInput> {
                           _chipsText.add(_controller.text);
                           _controller.clear();
                         });
+                        widget.onValueChanged?.call(output, _chipsText);
                       }
                     }
                     widget.onChanged?.call(value);
                   },
                   decoration: widget.textFormFieldStyle.decoration,
-                  validator: (value) {
-                    if (widget.validateInput &&
-                        widget.validateInputMethod != null) {
-                      return widget.validateInputMethod!(value!);
-                    }
-                    return null;
-                  },
+                  validator: widget.inputValidator,
                   onEditingComplete: () {
                     widget.onEditingComplete?.call();
                   },
                   onFieldSubmitted: ((value) {
-                    _output = '';
-                    for (String text in _chipsText) {
-                      _output += text + widget.separatorCharacter;
-                    }
                     if (value.isNotEmpty) {
                       if (_formKey.currentState!.validate()) {
                         setState(() {
                           _chipsText.add(_controller.text);
-                          _output +=
-                              _controller.text + widget.separatorCharacter;
                           _controller.clear();
                         });
+                        widget.onValueChanged?.call(output, _chipsText);
                       }
                     }
-                    widget.onSubmitted?.call(_output);
+                    widget.onSubmitted?.call(output);
                   }),
                   onSaved: (value) {
-                    _output = '';
-                    for (String text in _chipsText) {
-                      _output += text + widget.separatorCharacter;
-                    }
                     if (value!.isNotEmpty) {
                       if (_formKey.currentState!.validate()) {
                         setState(() {
                           _chipsText.add(_controller.text);
-                          _output +=
-                              _controller.text + widget.separatorCharacter;
                           _controller.clear();
                         });
+                        widget.onValueChanged?.call(output, _chipsText);
                       }
                     }
-                    widget.onSaved?.call(_output);
+                    widget.onSaved?.call(output);
                   },
                 ),
               ),
